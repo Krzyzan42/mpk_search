@@ -1,6 +1,36 @@
-from datetime import datetime
-from typing import Optional
+from collections import defaultdict
 from dataclasses import dataclass
+from datetime import datetime
+from geopy.distance import geodesic
+from typing import Callable, Optional, Tuple
+import math
+
+
+def to_datetime(time: str):
+    hour, minute, second = time.split(":")
+    day = 1
+    hour = int(hour)
+    minute = int(minute)
+    second = int(second)
+    if hour >= 24:
+        day = 2
+        hour -= 24
+    return datetime(2000, 1, day, hour, minute, second)
+
+
+def to_row_entry(row: str):
+    r = row.split(",")
+    return RowEntry(
+        start=r[5],
+        end=r[6],
+        departs_at=to_datetime(r[3]),
+        arrives_at=to_datetime(r[4]),
+        bus_n=r[2],
+        start_latitude=float(r[7]),
+        start_longitude=float(r[8]),
+        end_latitude=float(r[9]),
+        end_longitude=float(r[10]),
+    )
 
 
 @dataclass
@@ -10,6 +40,10 @@ class RowEntry:
     departs_at: datetime
     arrives_at: datetime
     bus_n: str
+    start_latitude: float
+    start_longitude: float
+    end_latitude: float
+    end_longitude: float
 
 
 @dataclass
@@ -19,130 +53,197 @@ class Connection:
     bus_n: str
 
 
-def to_datetime(entry: str) -> datetime:
-    hour, minute, second = entry.split(":")
-    day = 1
-    hour = int(hour)
-    minute = int(minute)
-    second = int(second)
-    if hour >= 24:
-        day += 1
-        hour -= 24
-
-    return datetime(2000, 1, day, hour, minute, second)
-
-
-def parse_data(rows: list[str]) -> list[RowEntry]:
-    connections: list[RowEntry] = []
-    for r in rows:
-        r = r.split(",")
-        connections.append(
-            RowEntry(r[5], r[6], to_datetime(r[3]), to_datetime(r[4]), r[2])
-        )
-    return connections
-
-
 class Node:
+    bus_stop_name: str
+    bus_n: str
+    latitude: float
+    longitude: float
+    removed: bool
+    parent: Optional["Node"]
+
     _connections: dict["Node", list[Connection]]
-    name: str
+    _same_stop_nodes: list["Node"]
 
-    def __init__(self, name) -> None:
+    def __init__(self, stop_name, bus_name, latitude=0.0, longitude=0.0) -> None:
         self._connections = {}
-        self.name = name
+        self.bus_stop_name = stop_name
+        self.bus_n = bus_name
+        self.latitude = latitude
+        self.longitude = longitude
+        self.removed = False
+        self.parent = None
 
-    def get_arrival_time(self, end: "Node", start_time: datetime) -> Optional[datetime]:
-        if not end in self._connections:
-            return None
+    def __eq__(self, value: object) -> bool:
+        if not isinstance(value, Node):
+            return False
+        return value.bus_n == self.bus_n and value.bus_stop_name == self.bus_stop_name
+
+    def __hash__(self) -> int:
+        return hash(self.bus_stop_name + self.bus_n)
+
+    def __repr__(self) -> str:
+        s = f"{self.bus_stop_name}:{self.bus_n}"
+        return s
+
+    def add_connection(self, node: "Node", connection: Connection):
+        if not node in self._connections:
+            self._connections[node] = []
+        self._connections[node].append(connection)
+
+    def get_best_connection(self, end: "Node", departure_time) -> Optional[datetime]:
+        if end not in self._connections or end.removed:
+            raise ValueError("Connection doesnt exist")
 
         connections = self._connections[end]
         for c in connections:
-            if c.departs_at >= start_time:
+            if c.departs_at >= departure_time:
                 return c.arrives_at
         return None
 
-    def get_transfer_weight(self, end: "Node", bus_n: str) -> Optional[int]:
-        if not end in self._connections:
-            return None
-        connections = self._connections[end]
-        for c in connections:
-            if c.bus_n == bus_n:
-                return 0
-        return 1
+    def set_same_stop_nodes(self, nodes: list["Node"]):
+        self._same_stop_nodes = nodes
 
-    def remove_neighbour(self, neighbor: "Node"):
-        if neighbor in self._connections:
-            self._connections.pop(neighbor)
-
-    def get_neighbours(self) -> set["Node"]:
-        return set(self._connections.keys())
-
-    def add_connection(
-        self, to: "Node", start_t: datetime, end_t: datetime, bus_n: str
-    ):
-        conn = Connection(start_t, end_t, bus_n)
-        if not to in self._connections:
-            self._connections[to] = []
-        self._connections[to].append(conn)
+    def get_neighbours(self):
+        all_nodes = list(self._connections.keys()) + self._same_stop_nodes
+        active_nodes = [n for n in all_nodes if n.removed is False]
+        return active_nodes
 
     def sort_connections(self):
-        for key, connections in self._connections.items():
-            connections.sort(key=lambda x: x.arrives_at)
+        for key, value in self._connections.items():
+            value.sort(key=lambda x: x.arrives_at)
 
 
-class Graph:
-    _nodes: dict[str, Node]
+def difference_in_minutes(a: datetime, b: datetime):
+    c = b - a
+    return math.floor(c.total_seconds() / 60)
 
-    def __init__(self, entries: list[RowEntry]) -> None:
-        self._nodes = self._get_nodes_from_connections(entries)
-        self._add_connections(entries)
 
-    def get_nodes(self) -> list[str]:
-        return list(self._nodes.keys())
+def distance(a: Tuple[float, float], b: Tuple[float, float]):
+    # return geodesic(a, b).km
+    return ((a[0] - b[0])*(a[0] - b[0]) + (a[1] - b[1]) * (a[1] - b[1])) * 1000
 
-    def get_arrival_time(self, start: str, end: str, departure_time: datetime):
-        start_n = self._nodes[start]
-        end_n = self._nodes[end]
-        return start_n.get_arrival_time(end_n, departure_time)
 
-    def get_transfer_weight(self, start: str, end: str, bus_n: str):
-        start_n = self._nodes[start]
-        end_n = self._nodes[end]
-        return start_n.get_transfer_weight(end_n, bus_n)
+class ExpandedGraph:
+    _nodes: list[Node]
+    _cost_per_minute: float
+    _transfer_cost: float
+    _cost_per_km: float
+    _hashed_distances: dict[Tuple[float, float, float, float], float]
 
-    def get_neighbouring_nodes(self, node: str) -> list[str]:
-        neighbour_nodes = self._nodes[node].get_neighbours()
-        result = []
-        for n in neighbour_nodes:
-            result.append(n.name)
-        return result
+    def __init__(
+        self,
+        connections: list[RowEntry],
+        cost_per_minute=1,
+        transfer_cost=10,
+        cost_per_kilometer=5,
+    ):
+        self._nodes = self._create_nodes(connections)
+        self._append_connections_to_nodes(connections)
+        self._hashed_distances = self._hash_distances(self._nodes)
 
-    def remove_node(self, node: str):
-        remove_n = self._nodes.pop(node)
-        for n in self._nodes.values():
-            n.remove_neighbour(remove_n)
+        self._cost_per_minute = cost_per_minute
+        self._cost_per_km = cost_per_kilometer
+        self._transfer_cost = transfer_cost
 
-    def _get_nodes_from_connections(
-        self, connections: list[RowEntry]
-    ) -> dict[str, Node]:
-        nodes: dict[str, Node] = {}
-        for c in connections:
-            if not c.start in nodes:
-                nodes[c.start] = Node(c.start)
-            if not c.end in nodes:
-                nodes[c.end] = Node(c.end)
+    def get_nodes(self) -> list[Node]:
+        return [n for n in self._nodes if n.removed is False]
+
+    def get_connection_weight(
+        self,
+        start: Node,
+        end: Node,
+        departure_time: datetime,
+        heuristic_target: Optional[Tuple[float, float]] = None,
+    ) -> Tuple[float, datetime]:
+        if start.removed or end.removed:
+            raise ValueError()
+        if start.bus_stop_name == end.bus_stop_name:
+            heuristic = 0
+            if heuristic_target:
+                heuristic = (
+                    distance((end.latitude, end.longitude), heuristic_target)
+                    * self._cost_per_km
+                )
+            return self._transfer_cost + heuristic, departure_time
+        else:
+            arrival_time = start.get_best_connection(end, departure_time)
+            if not arrival_time:
+                return (None, None)
+            heuristic = 0
+            if heuristic_target:
+                heuristic = (
+                    distance((end.latitude, end.longitude), heuristic_target)
+                    * self._cost_per_km
+                )
+            time_weight = difference_in_minutes(departure_time, arrival_time) * self._cost_per_minute
+            return heuristic + time_weight, arrival_time
+
+    def get_neighbouring_nodes(self, node: Node) -> list[Node]:
+        return node.get_neighbours()
+
+    def remove_node(self, node: Node):
+        node.removed = True
+
+    def get_nodes_by_stop_name(self, stop_name: str) -> list[Node]:
+        nodes = []
+        for n in self._nodes:
+            if n.bus_stop_name == stop_name:
+                nodes.append(n)
         return nodes
 
-    def _add_connections(self, connections: list[RowEntry]):
-        for c in connections:
-            if c.start == c.end:
-                continue
-            start_n = self._nodes[c.start]
-            end_n = self._nodes[c.end]
+    def get_node(self, stop_name, bus_name) -> Node:
+        for n in self._nodes:
+            if n.bus_stop_name == stop_name and n.bus_n == bus_name:
+                return n
+        raise ValueError("Tried to get a node that doesnt exist")
 
-            start_n.add_connection(end_n, c.departs_at, c.arrives_at, c.bus_n)
-        for n in self._nodes.values():
+    def reset(self):
+        for n in self._nodes:
+            n.removed = False
+            n.parent = None
+
+    def _create_nodes(self, connections: list[RowEntry]) -> list[Node]:
+        nodes: dict[Tuple[str, str], Node] = {}
+        nodes_by_bus_stop: dict[str, set[Node]] = defaultdict(set)
+
+        for c in connections:
+            if (c.start, c.bus_n) not in nodes:
+                node = Node(c.start, c.bus_n, c.start_latitude, c.start_longitude)
+                nodes[(c.start, c.bus_n)] = node
+                nodes_by_bus_stop[c.start].add(node)
+            if (c.end, c.bus_n) not in nodes:
+                node = Node(c.end, c.bus_n, c.end_latitude, c.end_longitude)
+                nodes[(c.end, c.bus_n)] = node
+                nodes_by_bus_stop[c.end].add(node)
+
+        for n in nodes.values():
+            n.set_same_stop_nodes(list(nodes_by_bus_stop[n.bus_stop_name] - set([n])))
+        return list(nodes.values())
+
+    def _append_connections_to_nodes(self, entries: list[RowEntry]):
+        node_dict = {}
+        for n in self._nodes:
+            node_dict[(n.bus_stop_name, n.bus_n)] = n
+        for entry in entries:
+
+            start = node_dict[(entry.start, entry.bus_n)]
+            end = node_dict[(entry.end, entry.bus_n)]
+
+            start.add_connection(
+                end, Connection(entry.departs_at, entry.arrives_at, entry.bus_n)
+            )
+        for n in self._nodes:
             n.sort_connections()
 
+    def _hash_distances(self, nodes: list[Node]) -> dict[Tuple[float, float, float, float], float]: 
+        return {}
+        dists = {}
+        for a in nodes:
+            print(f'Node done')
+            for b in nodes:
+                d = distance((a.longitude, a.latitude), (b.longitude, b.latitude))
+                print(d)
+                dists[(a.longitude, a.latitude, b.longitude, b.latitude)] = d
+        return dists
 
-def graph_from_data(rows: list[str]) -> Graph:
-    return Graph(parse_data(rows))
+
