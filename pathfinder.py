@@ -1,38 +1,49 @@
 from dataclasses import dataclass
 from typing import Optional, Tuple
 from graph import (
+    Connection,
     ExpandedGraph,
     Node,
     RowEntry,
     to_row_entry,
     to_datetime,
-    difference_in_minutes,
 )
 from datetime import datetime
+import math
+
+def difference_in_minutes(a: datetime, b: datetime):
+    c = b - a
+    return math.floor(c.total_seconds() / 60)
+
 
 
 @dataclass
 class BusStop:
-    time: str
-    stop_name: str
+    departs_from :str
+    departure :str
+    arrives_to: str
+    arrival :str
     bus_n: str
-    score: float
 
+@dataclass
+class SavedConnection:
+    previous :Node
+    connection :Connection
+
+    def __hash__(self) -> int:
+        return (self.previous).__hash__()
+
+@dataclass
+class SavedTransfer:
+    previous :Node
+    arrival_time :datetime
+    
 
 class Pathfinder:
     _graph: ExpandedGraph
 
     def __init__(self, row_entries: list[RowEntry]) -> None:
         self._graph = ExpandedGraph(row_entries)
-
-    @staticmethod
-    def from_csv(csv_filename) -> "Pathfinder":
-        rows = open(csv_filename).read().splitlines()[1:]
-        row_entries = [to_row_entry(r) for r in rows]
-        return Pathfinder(row_entries)
-
-    def node_exists(self, name: str):
-        return len(self._graph.get_nodes_by_stop_name(name)) > 0
 
     def find_path(
         self,
@@ -45,121 +56,79 @@ class Pathfinder:
         starting_line: Optional[str] = None,
     ):
         self._graph.reset()
-        self._graph._cost_per_minute = minute_cost
-        self._graph._transfer_cost = transfer_cost
-        self._graph._cost_per_km = km_cost
+        self._minute_cost = minute_cost
+        self._tranfer_cost = transfer_cost
 
         starting_time = to_datetime(time)
         target_node = self._graph.get_nodes_by_stop_name(end)[0]
-
-        target_coords = None
-        use_astar = False
-        if use_astar:
-            target_coords = (target_node.latitude, target_node.longitude)
-
-        target_node_name = target_node.bus_stop_name
         scores = self._init_scores(start, starting_time, starting_line)
-
         saved_scores = {}
+        saved_parents = {}
         winner = None
 
         while len(scores) > 0:
             current = self._get_best_node(scores)
-            if current is None:
-                break
-            if current.bus_stop_name == target_node_name:
-                saved_scores[current] = scores[current]
-                winner = current
-                break
+            if current is not None:
+                if current.bus_stop_name != target_node.bus_stop_name:
+                    current_score, current_arr_time = scores[current]
 
-            current_score, current_arr_time = scores[current]
+                    for n in self._graph.get_neighbouring_nodes(current):
+                        if n.bus_stop_name != current.bus_stop_name:
+                            connection = self._graph.get_best_connection(current, n, current_arr_time)
+                            if connection:
+                                minutes = difference_in_minutes(current_arr_time, connection.arrives_at)
+                                total_cost = current_score + minutes * minute_cost
+                                if total_cost < scores[n][0]:
+                                    scores[n] = (total_cost, connection.arrives_at)
+                                    saved_parents[n] = SavedConnection(current, connection)
+                        else:
+                            total_cost = current_score + transfer_cost
+                            if total_cost < scores[n][0]:
+                                scores[n] = (total_cost, current_arr_time)
+                                saved_parents[n] = SavedTransfer(current, current_arr_time)
 
-            for n in self._graph.get_neighbouring_nodes(current):
-                cost, arr_time = self._graph.get_connection_weight(
-                    current,
-                    n,
-                    current_arr_time,
-                    heuristic_target=target_coords,
-                )
-                if cost:
-                    cost += current_score
-                    if cost < scores[n][0]:
-                        scores[n] = (cost, arr_time)
-                        n.parent = current
-
-            self._graph.remove_node(current)
-            saved_scores[current] = (current_score, current_arr_time)
-            scores.pop(current)
+                    self._graph.remove_node(current)
+                    saved_scores[current] = (current_score, current_arr_time)
+                    scores.pop(current)
+                else:
+                    saved_scores[current] = scores[current]
+                    winner = current
+                    break
 
         if not winner:
-            return None, None
+            return None
         else:
-            bus_stops, total_cost = self._prepare_result(
-                winner, saved_scores, starting_time
-            )
-            #self._pretty_print_result(bus_stops, total_cost)
-            return bus_stops, total_cost
+            stops = self._prepare_results(winner, saved_parents) 
+            cost = self._calculate_cost(starting_time, stops)
+            return stops, cost
 
-    def stop_exists(self, stop_name: str):
-        return self._graph.get_nodes_by_stop_name(stop_name) != []
-
-    def _prepare_result(
-        self,
-        end_node: "Node",
-        scores: dict[Node, Tuple[float, datetime]],
-        starting_time: datetime,
-    ) -> Tuple[list[BusStop], float]:
-        path = self._traverse_final_path(end_node)
-        bus_stops = self._node_path_to_bus_stops(path, scores)
-        transfer_cost = self._calculate_transfer_cost(path)
-        _, arrival_time = scores[end_node]
-        time_cost = self._calculate_time_cost(starting_time, arrival_time)
-
-        return bus_stops, transfer_cost + time_cost
-
-    def _pretty_print_result(self, bus_stops: list[BusStop], cost):
-        s = str(cost)
-        for b in bus_stops:
-            s += b.stop_name + "_" + b.time + " -> "
-        print(s)
-
-    def _traverse_final_path(self, end_node: Optional[Node]) -> list[Node]:
-        traversed_nodes = []
-        while end_node != None:
-            traversed_nodes.append(end_node)
-            end_node = end_node.parent
-        traversed_nodes.reverse()
-        return traversed_nodes
-
-    def _node_path_to_bus_stops(
-        self, path: list[Node], scores: dict[Node, Tuple[float, datetime]]
-    ) -> list[BusStop]:
+    def _prepare_results(self, winner :Node, saved_parents :dict[Node, SavedConnection | SavedTransfer]) -> list[BusStop]:
+        current = winner
         bus_stops = []
-        for node in path:
-            _, arrival_time = scores[node]
-            bus_stops.append(
-                BusStop(
-                    arrival_time.strftime("%H:%M"),
-                    node.bus_stop_name,
-                    node.bus_n,
-                    scores[node][0],
-                )
-            )
+        while current in saved_parents:
+            c = saved_parents[current]
+            if isinstance(c, SavedConnection):
+                bus_stops.append(BusStop(
+                    departs_from=c.previous.bus_stop_name,
+                    arrives_to=current.bus_stop_name,
+                    bus_n=current.bus_n,
+                    departure=c.connection.departs_at.strftime('%H:%M'),
+                    arrival=c.connection.arrives_at.strftime('%H:%M'),
+                ))
+            current = saved_parents[current].previous
+        bus_stops.reverse()
         return bus_stops
 
-    def _calculate_transfer_cost(self, path: list[Node]) -> float:
-        current_bus = path[0].bus_n
-        transfer_count = 0
-        for p in path:
-            if p.bus_n != current_bus:
-                transfer_count += 1
-                current_bus = p.bus_n
-        return self._graph._transfer_cost * transfer_count
+    def _calculate_cost(self, starting_time :datetime, bus_stops :list[BusStop]):
+        lines_set = set()
+        for b in bus_stops:
+            lines_set.add(b.bus_n)
+        transfers = len(lines_set) - 1
+        total_time = difference_in_minutes(starting_time, to_datetime(bus_stops[-1].arrival))
+        cost = transfers * self._tranfer_cost + total_time * self._minute_cost
+        return cost
 
-    def _calculate_time_cost(
-        self, starting_time: datetime, arrival_time: datetime
-    ) -> float:
-        return difference_in_minutes(starting_time, arrival_time)
+            
 
     def _init_scores(self, start: str, starting_time: datetime, starting_line=None):
         if starting_line:
@@ -185,12 +154,15 @@ class Pathfinder:
                 best_score = score
         return best_node
 
-    def _debug_print_scores(self, scores):
-        print("SCORES --------------------------------------")
-        items = list(scores.items())
-        items.sort(key=(lambda x: -x[1][0]))
-        for key, (score, arr_time) in items:
-            if score > 1000000:
-                continue
-            print(f"{key} - {score} at {arr_time}")
-        print("END OF SCORES--------------------------------")
+    @staticmethod
+    def from_csv(csv_filename) -> "Pathfinder":
+        rows = open(csv_filename).read().splitlines()[1:]
+        row_entries = [to_row_entry(r) for r in rows]
+        return Pathfinder(row_entries)
+
+    def node_exists(self, name: str):
+        return len(self._graph.get_nodes_by_stop_name(name)) > 0
+
+    def stop_exists(self, stop_name: str):
+        return self._graph.get_nodes_by_stop_name(stop_name) != []
+
