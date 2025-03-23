@@ -88,14 +88,14 @@ class Node:
             self._connections[node] = []
         self._connections[node].append(connection)
 
-    def get_best_connection(self, end: "Node", departure_time) -> Optional[datetime]:
+    def get_best_connection(self, end: "Node", departure_time) -> Optional[Connection]:
         if end not in self._connections or end.removed:
             raise ValueError("Connection doesnt exist")
 
         connections = self._connections[end]
         for c in connections:
             if c.departs_at >= departure_time:
-                return c.arrives_at
+                return c
         return None
 
     def set_same_stop_nodes(self, nodes: list["Node"]):
@@ -107,13 +107,8 @@ class Node:
         return active_nodes
 
     def sort_connections(self):
-        for key, value in self._connections.items():
+        for _, value in self._connections.items():
             value.sort(key=lambda x: x.arrives_at)
-
-
-def difference_in_minutes(a: datetime, b: datetime):
-    c = b - a
-    return math.floor(c.total_seconds() / 60)
 
 
 def distance(a: Tuple[float, float], b: Tuple[float, float]):
@@ -122,59 +117,29 @@ def distance(a: Tuple[float, float], b: Tuple[float, float]):
 
 class ExpandedGraph:
     _nodes: list[Node]
-    _cost_per_minute: float
-    _transfer_cost: float
-    _cost_per_km: float
 
     def __init__(
         self,
         connections: list[RowEntry],
-        cost_per_minute=1,
-        transfer_cost=10,
-        cost_per_kilometer=5,
     ):
         self._nodes = self._create_nodes(connections)
         self._append_connections_to_nodes(connections)
 
-        self._cost_per_minute = cost_per_minute
-        self._cost_per_km = cost_per_kilometer
-        self._transfer_cost = transfer_cost
-
     def get_nodes(self) -> list[Node]:
         return [n for n in self._nodes if n.removed is False]
 
-    def get_connection_weight(
+    def get_best_connection(
         self,
         start: Node,
         end: Node,
         departure_time: datetime,
-        heuristic_target: Optional[Tuple[float, float]] = None,
-    ) -> Tuple[float, datetime]:
+    ) -> Optional[Connection]:
+        if start.bus_n != end.bus_n:
+            raise ValueError()
         if start.removed or end.removed:
             raise ValueError()
-        if start.bus_stop_name == end.bus_stop_name:
-            heuristic = 0
-            if heuristic_target:
-                heuristic = (
-                    distance((end.latitude, end.longitude), heuristic_target)
-                    * self._cost_per_km
-                )
-            return self._transfer_cost + heuristic, departure_time
-        else:
-            arrival_time = start.get_best_connection(end, departure_time)
-            if not arrival_time:
-                return (None, None)
-            heuristic = 0
-            if heuristic_target:
-                heuristic = (
-                    distance((end.latitude, end.longitude), heuristic_target)
-                    * self._cost_per_km
-                )
-            time_weight = (
-                difference_in_minutes(departure_time, arrival_time)
-                * self._cost_per_minute
-            )
-            return heuristic + time_weight, arrival_time
+
+        return start.get_best_connection(end, departure_time)
 
     def get_neighbouring_nodes(self, node: Node) -> list[Node]:
         return node.get_neighbours()
