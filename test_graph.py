@@ -131,7 +131,7 @@ def test_neighboring_nodes(nodes, bus_stop, bus_n, expected):
             ("a", "101"),
             ("b", "101"),
             "10:00",
-            None
+            None,
         ),
         (
             [rowentry("a", "b", "9:00", "9:15", "101")],
@@ -155,7 +155,7 @@ def test_neighboring_nodes(nodes, bus_stop, bus_n, expected):
             ("a", "101"),
             ("a", "102"),
             "9:00",
-            ValueError
+            ValueError,
         ),
     ],
 )
@@ -201,5 +201,3 @@ def test_remove_node__same_bus_line():
 
     with pytest.raises(ValueError):
         graph.get_best_connection(a_101, a_102, to_datetime("9:90"))
-
-

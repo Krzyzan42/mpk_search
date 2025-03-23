@@ -68,7 +68,7 @@ class PathfinderTestParams:
     "params",
     [
         # Is it working at all
-        PathfinderTestParams( 
+        PathfinderTestParams(
             nodes=[
                 rowentry("a", "b", "9:00", "9:15", "101"),
             ],
@@ -81,9 +81,8 @@ class PathfinderTestParams:
             expected_cost=15,
             minute_cost=1,
         ),
-
         # Start time before departure, cost calculated correctly
-        PathfinderTestParams( 
+        PathfinderTestParams(
             nodes=[
                 rowentry("a", "b", "9:00", "9:15", "101"),
             ],
@@ -96,7 +95,6 @@ class PathfinderTestParams:
             expected_cost=30,
             minute_cost=1,
         ),
-
         # Multiple stops on the way
         PathfinderTestParams(
             nodes=[
@@ -115,7 +113,6 @@ class PathfinderTestParams:
             expected_cost=45,
             minute_cost=1,
         ),
-
         # Roundabout way is faster
         PathfinderTestParams(
             nodes=[
@@ -135,7 +132,6 @@ class PathfinderTestParams:
             expected_cost=45,
             minute_cost=1,
         ),
-
         # Direct but later path is faster
         PathfinderTestParams(
             nodes=[
@@ -153,7 +149,6 @@ class PathfinderTestParams:
             expected_cost=40,
             minute_cost=1,
         ),
-
         # Transfer cost is correct
         PathfinderTestParams(
             nodes=[
@@ -171,13 +166,11 @@ class PathfinderTestParams:
             minute_cost=1,
             transfer_cost=100,
         ),
-
         # Prefers slower path, but without transfers
         PathfinderTestParams(
             nodes=[
                 rowentry("a", "b", "9:00", "9:15", "101"),
                 rowentry("b", "c", "9:15", "9:30", "101"),
-
                 rowentry("a", "d", "9:05", "9:10", "101"),
                 rowentry("d", "c", "9:10", "9:20", "222"),
             ],
@@ -192,27 +185,43 @@ class PathfinderTestParams:
             minute_cost=1,
             transfer_cost=100,
         ),
-
+        # When starting on some line, prefer that line instead of transfering
+        PathfinderTestParams(
+            nodes=[
+                rowentry("a", "b", "9:00", "9:15", "101"),
+                rowentry("a", "b", "9:00", "9:10", "222"),
+            ],
+            start="a",
+            start_line="101",
+            end="b",
+            at="9:00",
+            expected_path=[
+                BusStop("a", "09:00", "b", "09:15", "101"),
+            ],
+            expected_cost=15,
+            minute_cost=1,
+            transfer_cost=100,
+        ),
         # Picks slower path when heuristic is enabled
-        # PathfinderTestParams(
-        #     nodes=[
-        #         rowentry("a", "b", "9:00", "9:15", "101", a_coords=(0, 0), b_coords=(100, 0)),
-        #         rowentry("b", "c", "9:15", "9:30", "101", a_coords=(100, 0), b_coords=(101, 0)),
-        #
-        #         rowentry("a", "d", "9:05", "9:10", "101", a_coords=(0, 0), b_coords=(1, 0)),
-        #         rowentry("d", "c", "9:10", "9:20", "101", a_coords=(1, 0), b_coords=(101, 0)),
-        #     ],
-        #     start="a",
-        #     end="c",
-        #     at="9:00",
-        #     expected_path=[
-        #         BusStop("a", "09:00", "b", "09:15", "101"),
-        #         BusStop("b", "09:15", "c", "09:30", "101"),
-        #     ],
-        #     expected_cost=30,
-        #     minute_cost=1,
-        #     km_cost=1000,
-        # ),
+        PathfinderTestParams(
+            nodes=[
+                rowentry("a", "b", "9:00", "9:15", "101", a_coords=(0, 0), b_coords=(100, 0)),
+                rowentry("b", "c", "9:15", "9:30", "101", a_coords=(100, 0), b_coords=(101, 0)),
+
+                rowentry("a", "d", "9:05", "9:10", "101", a_coords=(0, 0), b_coords=(1, 0)),
+                rowentry("d", "c", "9:10", "9:20", "101", a_coords=(1, 0), b_coords=(101, 0)),
+            ],
+            start="a",
+            end="c",
+            at="9:00",
+            expected_path=[
+                BusStop("a", "09:00", "b", "09:15", "101"),
+                BusStop("b", "09:15", "c", "09:30", "101"),
+            ],
+            expected_cost=30,
+            minute_cost=1,
+            km_cost=1000,
+        ),
     ],
 )
 def test_path(params: PathfinderTestParams):
