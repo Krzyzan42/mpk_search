@@ -205,11 +205,24 @@ class PathfinderTestParams:
         # Picks slower path when heuristic is enabled
         PathfinderTestParams(
             nodes=[
-                rowentry("a", "b", "9:00", "9:15", "101", a_coords=(0, 0), b_coords=(100, 0)),
-                rowentry("b", "c", "9:15", "9:30", "101", a_coords=(100, 0), b_coords=(101, 0)),
-
-                rowentry("a", "d", "9:05", "9:10", "101", a_coords=(0, 0), b_coords=(1, 0)),
-                rowentry("d", "c", "9:10", "9:20", "101", a_coords=(1, 0), b_coords=(101, 0)),
+                rowentry(
+                    "a", "b", "9:00", "9:15", "101", a_coords=(0, 0), b_coords=(100, 0)
+                ),
+                rowentry(
+                    "b",
+                    "c",
+                    "9:15",
+                    "9:30",
+                    "101",
+                    a_coords=(100, 0),
+                    b_coords=(101, 0),
+                ),
+                rowentry(
+                    "a", "d", "9:05", "9:10", "101", a_coords=(0, 0), b_coords=(1, 0)
+                ),
+                rowentry(
+                    "d", "c", "9:10", "9:20", "101", a_coords=(1, 0), b_coords=(101, 0)
+                ),
             ],
             start="a",
             end="c",

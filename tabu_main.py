@@ -1,59 +1,51 @@
 from pathfinder import Pathfinder
+import sys
+import time
 import random
 from tabu import Tabu, Solution
 
-inital_time = "8:00"
-optimize = "t"
+
+def get_cost_function(initial_time, minute_cost, transfer_cost, km_cost):
+
+    def calculate_path(sol: Solution):
+        stops = sol.bus_stops
+
+        line = None
+        time = initial_time
+        total_cost = 0
+
+        for i in range(len(stops) - 1):
+            a = stops[i]
+            b = stops[i + 1]
+            result = pathfinder.find_path(
+                a,
+                b,
+                time,
+                starting_line=line,
+                minute_cost=minute_cost,
+                transfer_cost=transfer_cost,
+                km_cost=km_cost,
+            )
+            if not result:
+                return 10000000
+
+            partial_path, cost = result
+
+            last_stop = partial_path[-1]
+
+            line = last_stop.bus_n
+            time = last_stop.arrival
+            total_cost += cost
+
+        return total_cost
+    return calculate_path
 
 
-def calculate_path(sol: Solution):
-    stops = sol.bus_stops
-
-    line = None
-    time = inital_time
-    total_cost = 0
-
-    solution_stops = []
-    for i in range(len(stops) - 1):
-        a = stops[i]
-        b = stops[i + 1]
-        partial_path = pathfinder.find_path(
-            a, b, time, starting_line=line, minute_cost=0, transfer_cost=5, km_cost=0
-        )
-        if partial_path[0] is None or partial_path[1] is None:
-            raise ValueError("Couldnt find the path")
-
-        last_stop = partial_path[0][-1]
-        cost = partial_path[1]
-
-        line = last_stop.bus_n
-        time = last_stop.time
-        total_cost += cost
-
-        if len(solution_stops) == 0:
-            solution_stops.extend(partial_path[0])
-        else:
-            solution_stops.extend(partial_path[1:])
-
-        string = ''
-        for b in partial_path[0]:
-            string += str(b) + ', '
-        print(string)
-
-
-    path = ", ".join(sol.bus_stops)
-    print(f"{total_cost} : {path}")
-    return total_cost
-
-
-def generate_neighbourhood(sol: Solution) -> list[Solution]:
+def two_swap_neighbourhood(sol: Solution) -> list[Solution]:
     neighbourhood = []
-    initial = sol.bus_stops[0]
-    stops = sol.bus_stops[1:-1]
-    last = sol.bus_stops[-1]
 
     for _ in range(20):
-        swaps = random.sample(range(1, len(sol.bus_stops) - 1), 2)
+        swaps = random.sample(range(1, len(sol.bus_stops) - 1), 3)
         route = []
         route.extend(sol.bus_stops)
         route[swaps[0]] = sol.bus_stops[swaps[1]]
@@ -62,20 +54,37 @@ def generate_neighbourhood(sol: Solution) -> list[Solution]:
     return neighbourhood
 
 
-pathfinder = Pathfinder.from_csv('connection_graph.csv')
-path = []
+pathfinder = Pathfinder.from_csv("connection_graph.csv")
+
+starting_point = input('Przystanek początkowy: ')
+visited_stops = input('Przystanki do odwiedzenia: ')
+optimize = input('Kryterium optymalizacyjne, t/p: ')
+starting_time = input('Czas początkowy: ')
+
+time_cost = 1 if optimize == 't' else 0
+transfer_cost = 1 if optimize == 'p' else 0
+
+path = [starting_point] + visited_stops.split(';') + [starting_point]
 tabu = Tabu(
-    initial_solution=Solution(
-        [
-            "Tramwajowa",
-            "Kępa Mieszczańska",
-            "Wyszyńskiego",
-            "Kochanowskiego",
-            "Sanocka",
-            "Tramwajowa",
-        ]
-    ),
-    calculate_cost=calculate_path,
-    generate_neighborhood=generate_neighbourhood,
+    # initial_solution=Solution(
+    #     [
+    #         "Tramwajowa",
+    #         "Kępa Mieszczańska",
+    #         "Wyszyńskiego",
+    #         "Kochanowskiego",
+    #         "Sanocka",
+    #         "Tramwajowa",
+    #     ]
+    # ),
+    initial_solution=Solution(path),
+    calculate_cost=get_cost_function(starting_time, time_cost, transfer_cost, 0),
+    generate_neighborhood=two_swap_neighbourhood,
 )
-tabu.run(100)
+
+start = time.time()
+solution, cost = tabu.run(5)
+end = time.time()
+
+print(f'Found solution: {"->".join(solution.bus_stops)}')
+print(f"Time taken: {end - start:.2f}s. Path cost: {cost}", file=sys.stderr)
+

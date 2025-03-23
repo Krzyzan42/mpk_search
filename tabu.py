@@ -72,12 +72,7 @@ class Tabu:
             if current_cost < best_cost:
                 best_solution = current_solution
                 best_cost = current_cost
-                print("New best solution!")
 
-            print(f"Finished iteration")
-            print(
-                f'Found {current_cost} cost solution: {"->".join(current_solution.bus_stops)}'
-            )
 
         return best_solution, best_cost
 

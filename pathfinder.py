@@ -16,8 +16,9 @@ def difference_in_minutes(a: datetime, b: datetime):
     c = b - a
     return math.floor(c.total_seconds() / 60)
 
-def cartesian(a :Tuple[float, float], b :Tuple[float, float]):
-    return math.sqrt((a[0] - b[0])**2 + (a[1] - b[1])**2)
+
+def cartesian(a: Tuple[float, float], b: Tuple[float, float]):
+    return math.sqrt((a[0] - b[0]) ** 2 + (a[1] - b[1]) ** 2)
 
 
 @dataclass
@@ -122,7 +123,7 @@ class Pathfinder:
             self._scores[b] = (total_cost, arrival_time)
             self._saved_parents[b] = SavedConnection(a, None)
 
-    def _heuristic_cost(self, a :Node):
+    def _heuristic_cost(self, a: Node):
         coords = (a.longitude, a.latitude)
         return cartesian(coords, self._target_coords) * self._km_cost
 
