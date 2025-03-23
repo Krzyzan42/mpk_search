@@ -1,7 +1,7 @@
 from datetime import datetime
 
 import pytest
-from expanded_graph import ExpandedGraph, RowEntry, Node
+from graph import ExpandedGraph, RowEntry, Node
 from typing import Optional, Tuple
 
 import graph
@@ -162,7 +162,7 @@ def test_neighboring_nodes(nodes, bus_stop, bus_n, expected):
     ],
 )
 def test_time_weight(nodes, where_from, where_to, at, expected_result):
-    graph = ExpandedGraph(nodes)
+    graph = ExpandedGraph(nodes, transfer_cost=5)
     a = graph.get_node(where_from[0], where_from[1])
     b = graph.get_node(where_to[0], where_to[1])
     t = to_datetime(at)
@@ -209,26 +209,23 @@ def test_remove_node__same_bus_line():
 
 
 def test_heuristics():
-    def time_weight_function(a: datetime, b: datetime):
-        return 0
-
-    def manhattan_distance(a: Tuple[float, float], b: Tuple[float, float]):
-        return abs(a[0] - b[0]) + abs(a[1] - b[1])
-
-    target_node = (2, 2)
-
     graph = ExpandedGraph(
-        [rowentry("a", "b", bus="101", a_coords=(99, 99), b_coords=(1, 1))],
-        heuristic_func=manhattan_distance,
-        time_weight_func=time_weight_function,
+        [rowentry("a", "b", bus="101", a_coords=(99, 99), b_coords=(2, 2))],
+        cost_per_kilometer=1,
+        transfer_cost=0,
+        cost_per_minute=0,
     )
 
     a_node = graph.get_node("a", "101")
     b_node = graph.get_node("b", "101")
+    print(b_node.longitude)
 
     assert (
         graph.get_connection_weight(
-            a_node, b_node, to_datetime("8:00"), heuristic_target=target_node
+            a_node,
+            b_node,
+            to_datetime("8:00"),
+            heuristic_target=(2, 0),
         )[0]
         == 2
     )

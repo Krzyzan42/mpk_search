@@ -1,21 +1,19 @@
 from collections import defaultdict
 from dataclasses import dataclass
 from datetime import datetime
-from geopy.distance import geodesic
-from typing import Callable, Optional, Tuple
+from typing import Optional, Tuple
 import math
 
 
 def to_datetime(time: str):
-    hour, minute, second = time.split(":")
+    parts = time.split(":")
     day = 1
-    hour = int(hour)
-    minute = int(minute)
-    second = int(second)
+    hour = int(parts[0])
+    minute = int(parts[1])
     if hour >= 24:
         day = 2
         hour -= 24
-    return datetime(2000, 1, day, hour, minute, second)
+    return datetime(2000, 1, day, hour, minute, 0)
 
 
 def to_row_entry(row: str):
@@ -119,8 +117,7 @@ def difference_in_minutes(a: datetime, b: datetime):
 
 
 def distance(a: Tuple[float, float], b: Tuple[float, float]):
-    # return geodesic(a, b).km
-    return ((a[0] - b[0])*(a[0] - b[0]) + (a[1] - b[1]) * (a[1] - b[1])) * 1000
+    return math.sqrt(((a[0] - b[0]) * (a[0] - b[0]) + (a[1] - b[1]) * (a[1] - b[1])))
 
 
 class ExpandedGraph:
@@ -128,7 +125,6 @@ class ExpandedGraph:
     _cost_per_minute: float
     _transfer_cost: float
     _cost_per_km: float
-    _hashed_distances: dict[Tuple[float, float, float, float], float]
 
     def __init__(
         self,
@@ -139,7 +135,6 @@ class ExpandedGraph:
     ):
         self._nodes = self._create_nodes(connections)
         self._append_connections_to_nodes(connections)
-        self._hashed_distances = self._hash_distances(self._nodes)
 
         self._cost_per_minute = cost_per_minute
         self._cost_per_km = cost_per_kilometer
@@ -175,7 +170,10 @@ class ExpandedGraph:
                     distance((end.latitude, end.longitude), heuristic_target)
                     * self._cost_per_km
                 )
-            time_weight = difference_in_minutes(departure_time, arrival_time) * self._cost_per_minute
+            time_weight = (
+                difference_in_minutes(departure_time, arrival_time)
+                * self._cost_per_minute
+            )
             return heuristic + time_weight, arrival_time
 
     def get_neighbouring_nodes(self, node: Node) -> list[Node]:
@@ -234,16 +232,3 @@ class ExpandedGraph:
             )
         for n in self._nodes:
             n.sort_connections()
-
-    def _hash_distances(self, nodes: list[Node]) -> dict[Tuple[float, float, float, float], float]: 
-        return {}
-        dists = {}
-        for a in nodes:
-            print(f'Node done')
-            for b in nodes:
-                d = distance((a.longitude, a.latitude), (b.longitude, b.latitude))
-                print(d)
-                dists[(a.longitude, a.latitude, b.longitude, b.latitude)] = d
-        return dists
-
-

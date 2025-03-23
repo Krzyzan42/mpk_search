@@ -1,30 +1,53 @@
 from dataclasses import dataclass
 from typing import Optional, Tuple
-from graph import ExpandedGraph, Node, to_row_entry, to_datetime, difference_in_minutes
+from graph import (
+    ExpandedGraph,
+    Node,
+    RowEntry,
+    to_row_entry,
+    to_datetime,
+    difference_in_minutes,
+)
 from datetime import datetime
-from time import time
+
 
 @dataclass
 class BusStop:
-    time :str
-    stop_name :str
-    bus_n :str
-    score :float
+    time: str
+    stop_name: str
+    bus_n: str
+    score: float
 
 
 class Pathfinder:
     _graph: ExpandedGraph
 
-    def __init__(self, csv_filename) -> None:
-        rows = open(csv_filename).read().splitlines()[1:]
-        row_entries = [to_row_entry(r) for r in rows]
+    def __init__(self, row_entries: list[RowEntry]) -> None:
         self._graph = ExpandedGraph(row_entries)
 
-    def node_exists(self, name :str):
+    @staticmethod
+    def from_csv(csv_filename) -> "Pathfinder":
+        rows = open(csv_filename).read().splitlines()[1:]
+        row_entries = [to_row_entry(r) for r in rows]
+        return Pathfinder(row_entries)
+
+    def node_exists(self, name: str):
         return len(self._graph.get_nodes_by_stop_name(name)) > 0
 
-    def find_path(self, start: str, end: str, time: str, optimize :str = 't', use_astar = True):
+    def find_path(
+        self,
+        start: str,
+        end: str,
+        time: str,
+        minute_cost: float = 1,
+        transfer_cost: float = 5,
+        km_cost: float = 1,
+        starting_line: Optional[str] = None,
+    ):
         self._graph.reset()
+        self._graph._cost_per_minute = minute_cost
+        self._graph._transfer_cost = transfer_cost
+        self._graph._cost_per_km = km_cost
 
         starting_time = to_datetime(time)
         target_node = self._graph.get_nodes_by_stop_name(end)[0]
@@ -35,7 +58,7 @@ class Pathfinder:
             target_coords = (target_node.latitude, target_node.longitude)
 
         target_node_name = target_node.bus_stop_name
-        scores = self._init_scores(start, starting_time)
+        scores = self._init_scores(start, starting_time, starting_line)
 
         saved_scores = {}
         winner = None
@@ -71,13 +94,21 @@ class Pathfinder:
         if not winner:
             return None, None
         else:
-            bus_stops, total_cost = self._prepare_result(winner, saved_scores, starting_time)
+            bus_stops, total_cost = self._prepare_result(
+                winner, saved_scores, starting_time
+            )
+            #self._pretty_print_result(bus_stops, total_cost)
             return bus_stops, total_cost
 
-    def stop_exists(self, stop_name :str):
+    def stop_exists(self, stop_name: str):
         return self._graph.get_nodes_by_stop_name(stop_name) != []
 
-    def _prepare_result(self, end_node :'Node', scores :dict[Node, Tuple[float, datetime]], starting_time :datetime) -> Tuple[list[BusStop], float]:
+    def _prepare_result(
+        self,
+        end_node: "Node",
+        scores: dict[Node, Tuple[float, datetime]],
+        starting_time: datetime,
+    ) -> Tuple[list[BusStop], float]:
         path = self._traverse_final_path(end_node)
         bus_stops = self._node_path_to_bus_stops(path, scores)
         transfer_cost = self._calculate_transfer_cost(path)
@@ -86,7 +117,13 @@ class Pathfinder:
 
         return bus_stops, transfer_cost + time_cost
 
-    def _traverse_final_path(self, end_node :Optional[Node]) -> list[Node]:
+    def _pretty_print_result(self, bus_stops: list[BusStop], cost):
+        s = str(cost)
+        for b in bus_stops:
+            s += b.stop_name + "_" + b.time + " -> "
+        print(s)
+
+    def _traverse_final_path(self, end_node: Optional[Node]) -> list[Node]:
         traversed_nodes = []
         while end_node != None:
             traversed_nodes.append(end_node)
@@ -94,14 +131,23 @@ class Pathfinder:
         traversed_nodes.reverse()
         return traversed_nodes
 
-    def _node_path_to_bus_stops(self, path :list[Node], scores :dict[Node, Tuple[float, datetime]]) -> list[BusStop]:
+    def _node_path_to_bus_stops(
+        self, path: list[Node], scores: dict[Node, Tuple[float, datetime]]
+    ) -> list[BusStop]:
         bus_stops = []
         for node in path:
             _, arrival_time = scores[node]
-            bus_stops.append(BusStop(arrival_time.strftime('%H:%M'), node.bus_stop_name, node.bus_n, scores[node][0]))
+            bus_stops.append(
+                BusStop(
+                    arrival_time.strftime("%H:%M"),
+                    node.bus_stop_name,
+                    node.bus_n,
+                    scores[node][0],
+                )
+            )
         return bus_stops
 
-    def _calculate_transfer_cost(self, path :list[Node]) -> float:
+    def _calculate_transfer_cost(self, path: list[Node]) -> float:
         current_bus = path[0].bus_n
         transfer_count = 0
         for p in path:
@@ -110,12 +156,16 @@ class Pathfinder:
                 current_bus = p.bus_n
         return self._graph._transfer_cost * transfer_count
 
-    def _calculate_time_cost(self, starting_time :datetime, arrival_time :datetime) -> float:
+    def _calculate_time_cost(
+        self, starting_time: datetime, arrival_time: datetime
+    ) -> float:
         return difference_in_minutes(starting_time, arrival_time)
 
-
-    def _init_scores(self, start: str, starting_time: datetime):
-        starting_nodes = self._graph.get_nodes_by_stop_name(start)
+    def _init_scores(self, start: str, starting_time: datetime, starting_line=None):
+        if starting_line:
+            starting_nodes = [self._graph.get_node(start, starting_line)]
+        else:
+            starting_nodes = self._graph.get_nodes_by_stop_name(start)
         scores: dict[Node, Tuple[float, datetime]] = {}
         for n in self._graph.get_nodes():
             scores[n] = (100000000, starting_time)
@@ -144,4 +194,3 @@ class Pathfinder:
                 continue
             print(f"{key} - {score} at {arr_time}")
         print("END OF SCORES--------------------------------")
-
