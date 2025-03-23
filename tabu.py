@@ -2,6 +2,8 @@ from collections.abc import Callable
 from typing import Optional, Tuple
 from dataclasses import dataclass
 
+from pathfinder import BusStop
+
 
 @dataclass
 class Solution:
@@ -30,34 +32,37 @@ class Tabu:
 
     def find_best_neighbour(
         self, neighbours: list[Solution], tabu
-    ) -> Tuple[Optional[Solution], float]:
+    ) -> Tuple[Optional[Solution], float, list[BusStop]]:
         best_neighbour = None
         best_neighbour_cost = float("inf")
+        best_path = None
 
         for n in neighbours:
             if n in tabu:
                 continue
 
-            cost = self.calculate_cost(n)
+            cost, path = self.calculate_cost(n)
             if cost < best_neighbour_cost:
                 best_neighbour = n
                 best_neighbour_cost = cost
+                best_path = path
 
-        return best_neighbour, best_neighbour_cost
+        return best_neighbour, best_neighbour_cost, best_path
 
     def run(self, iterations: int):
 
         current_solution = self.initial_solution
-        current_cost = self.calculate_cost(current_solution)
+        current_cost, path = self.calculate_cost(current_solution)
 
         best_solution = current_solution
         best_cost = current_cost
+        best_path = path
         tabu: list[Solution] = []
 
         for _ in range(iterations):
 
             neighborhood: list[Solution] = self.generate_neighborhood(current_solution)
-            new_solution, new_cost = self.find_best_neighbour(neighborhood, tabu)
+            new_solution, new_cost, new_path = self.find_best_neighbour(neighborhood, tabu)
             if not new_solution:
                 return best_solution, best_cost
             while len(tabu) > 3 * len(current_solution.bus_stops):
@@ -72,9 +77,10 @@ class Tabu:
             if current_cost < best_cost:
                 best_solution = current_solution
                 best_cost = current_cost
+                best_path = new_path
 
 
-        return best_solution, best_cost
+        return best_solution, best_cost, best_path
 
 
 # start = input('Select starting point: ')
