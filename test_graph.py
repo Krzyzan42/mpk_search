@@ -1,10 +1,8 @@
 from datetime import datetime
 
 import pytest
-from expanded_graph import ExpandedGraph, RowEntry, Node
-from typing import Optional, Tuple
-
-import graph
+from graph import Connection, ExpandedGraph, RowEntry, Node
+from typing import Tuple
 
 
 def to_datetime(time: str):
@@ -106,14 +104,14 @@ def test_neighboring_nodes(nodes, bus_stop, bus_n, expected):
             ("a", "101"),
             ("b", "101"),
             "9:00",
-            (15, "9:15"),
+            Connection(to_datetime("9:00"), to_datetime("09:15"), "101"),
         ),
         (
             [rowentry("a", "b", "9:00", "9:15", "101")],
             ("a", "101"),
             ("b", "101"),
             "8:45",
-            (30, "9:15"),
+            Connection(to_datetime("9:00"), to_datetime("09:15"), "101"),
         ),
         (
             [
@@ -123,7 +121,7 @@ def test_neighboring_nodes(nodes, bus_stop, bus_n, expected):
             ("a", "101"),
             ("b", "101"),
             "9:00",
-            (10, "9:10"),
+            Connection(to_datetime("9:05"), to_datetime("09:10"), "101"),
         ),
         (
             [
@@ -133,7 +131,7 @@ def test_neighboring_nodes(nodes, bus_stop, bus_n, expected):
             ("a", "101"),
             ("b", "101"),
             "10:00",
-            (None, None),
+            None,
         ),
         (
             [rowentry("a", "b", "9:00", "9:15", "101")],
@@ -157,7 +155,7 @@ def test_neighboring_nodes(nodes, bus_stop, bus_n, expected):
             ("a", "101"),
             ("a", "102"),
             "9:00",
-            (5, "9:00"),
+            ValueError,
         ),
     ],
 )
@@ -167,15 +165,12 @@ def test_time_weight(nodes, where_from, where_to, at, expected_result):
     b = graph.get_node(where_to[0], where_to[1])
     t = to_datetime(at)
 
-    if not isinstance(expected_result, Tuple):
+    if isinstance(expected_result, type):
         with pytest.raises(expected_result):
-            graph.get_connection_weight(a, b, t)
+            graph.get_best_connection(a, b, t)
         return
 
-    assert graph.get_connection_weight(a, b, t) == (
-        expected_result[0],
-        to_datetime(expected_result[1]),
-    )
+    assert graph.get_best_connection(a, b, t) == expected_result
 
 
 def test_remove_node():
@@ -188,7 +183,7 @@ def test_remove_node():
     assert graph.get_neighbouring_nodes(a_node) == []
 
     with pytest.raises(ValueError):
-        graph.get_connection_weight(a_node, b_node, to_datetime("9:90"))
+        graph.get_best_connection(a_node, b_node, to_datetime("9:90"))
 
 
 def test_remove_node__same_bus_line():
@@ -205,30 +200,4 @@ def test_remove_node__same_bus_line():
     assert graph.get_neighbouring_nodes(a_102) == [Node("c", "102")]
 
     with pytest.raises(ValueError):
-        graph.get_connection_weight(a_101, a_102, to_datetime("9:90"))
-
-
-def test_heuristics():
-    def time_weight_function(a: datetime, b: datetime):
-        return 0
-
-    def manhattan_distance(a: Tuple[float, float], b: Tuple[float, float]):
-        return abs(a[0] - b[0]) + abs(a[1] - b[1])
-
-    target_node = (2, 2)
-
-    graph = ExpandedGraph(
-        [rowentry("a", "b", bus="101", a_coords=(99, 99), b_coords=(1, 1))],
-        heuristic_func=manhattan_distance,
-        time_weight_func=time_weight_function,
-    )
-
-    a_node = graph.get_node("a", "101")
-    b_node = graph.get_node("b", "101")
-
-    assert (
-        graph.get_connection_weight(
-            a_node, b_node, to_datetime("8:00"), heuristic_target=target_node
-        )[0]
-        == 2
-    )
+        graph.get_best_connection(a_101, a_102, to_datetime("9:90"))
